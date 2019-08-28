@@ -15,6 +15,7 @@ module Agents
     form_configurable :url
     form_configurable :disable_redirect_follow, type: :boolean
     form_configurable :changes_only, type: :boolean
+    form_configurable :timeout, type: :string
     form_configurable :headers_to_save
 
     description <<-MD
@@ -48,6 +49,7 @@ module Agents
       {
         'url' => "http://google.com",
         'disable_redirect_follow' => "true",
+        'timeout' => "120"
       }
     end
 
@@ -60,23 +62,24 @@ module Agents
     end
 
     def check
-      check_this_url interpolated[:url], header_array(interpolated[:headers_to_save])
+      check_this_url interpolated[:url], header_array(interpolated[:headers_to_save]), interpolated[:timeout]
     end
 
     def receive(incoming_events)
       incoming_events.each do |event|
         interpolate_with(event) do
           check_this_url interpolated[:url],
-                         header_array(interpolated[:headers_to_save])
+                         header_array(interpolated[:headers_to_save]),
+                         interpolated[:timeout]
         end
       end
     end
 
     private
 
-    def check_this_url(url, local_headers)
+    def check_this_url(url, local_headers, timeout)
       # Track time
-      measured_result = TimeTracker.track { ping(url) }
+      measured_result = TimeTracker.track { ping(url, timeout) }
 
       current_status = measured_result.result ? measured_result.status.to_s : ''
       return if options['changes_only'] == 'true' && current_status == memory['last_status'].to_s
@@ -101,8 +104,11 @@ module Agents
 
     end
 
-    def ping(url)
-      result = faraday.get url
+    def ping(url,timeout)
+      result = faraday.get do |req|
+        req.url = url
+        req.options.timeout = timeout.to_i
+      end
       result.status > 0 ? result : nil
     rescue
       nil
